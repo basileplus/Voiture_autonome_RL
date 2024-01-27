@@ -4,21 +4,18 @@ import numpy as np
 import time
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_checker import check_env
+import struct
 
 import sys
 #sous Linux, chemin a adapter export WEBOTS_HOME=/usr/local/webots
 sys.path.append('/usr/local/webots/lib/controller/python/')
-sys.path.append('/home/basile/Documents/TER_basile/Simulateur_CoVAPSy_Webots2023b_RL_essai3/controllers/supervisor_controller')
+sys.path.append('/home/basile/Documents/TER_basile/Simulateur_CoVAPSy_Webots2023b_RL_essai3/controllers')
 
-import multiprocessing
 
-# Create a shared memory manager to share variables between supervisor/controller scripts
-manager = multiprocessing.Manager()
 
-# Access the shared dictionary with shared variables
-shared_variables = manager.dict()
+	
 
-# Webots imports
+
 from vehicle import Driver
 
 # Global constants
@@ -29,35 +26,42 @@ VITESSE_MAX_M_S = MAXSPEED/3.6
 MAXANGLE_DEGRE = 18
 RESET_STEP = 16384	# Number of steps between 2 forced resets to avoid overfitting
 
-# Get shared-variables from supervisor script
-lap_time = shared_variables['lap_time']
-sector1_t = shared_variables['sector1_t']
-sector2_t = shared_variables['sector2_t']
-sector3_t = shared_variables['sector3_t']
 
 # Custom Gym environment
 class WebotsGymEnvironment(Driver, gym.Env):
 	def __init__(self):
-		super().__init__()			
+		super().__init__()            
 		#valeur initiale des actions
 		self.consigne_angle = 0.0 #en degres
 		self.consigne_vitesse = 0.1 #en m/s
 		#compteur servant à la supervision de l'apprentissage
-		self.numero_crash = 0 		# compteur de collisions
-		self.nb_pb_lidar = 0 		# compteur de problèmes de communication avec le lidar
-		self.nb_pb_acqui_lidar=0	# compteur de problèmes d'acquisition lidar (il renvoie 0 ce qui n'est pas possible)
+		self.numero_crash = 0         # compteur de collisions
+		self.nb_pb_lidar = 0         # compteur de problèmes de communication avec le lidar
+		self.nb_pb_acqui_lidar=0    # compteur de problèmes d'acquisition lidar (il renvoie 0 ce qui n'est pas possible)
 		self.nb_demarrage_lidar=0        # compteur de démarrages de lidar (il faut parfois le démarrer plusieurs fois)
-		self.reset_counter = 0 		# compteur de pas d'apprentissage pour arrêter un épisode après RESET_STEP pas
-		self.packet_number = 0 		# compteur de messages envoyés
+		self.reset_counter = 0         # compteur de pas d'apprentissage pour arrêter un épisode après RESET_STEP pas
+		self.packet_number = 0         # compteur de messages envoyés
 
-		# Emitter / Receiver
-		self.emitter = super().getDevice("emitter")
-		self.receiver = super().getDevice("receiver")
-		self.receiver.enable(RECEIVER_SAMPLING_PERIOD)
+		# Emitter / Receiver for reset signal
+		self.ResetEmitter = super().getDevice("ResetEmitter")
+		self.ResetReceiver = super().getDevice("ResetReceiver")
+		self.ResetReceiver.enable(RECEIVER_SAMPLING_PERIOD)
+		self.ResetReceiver.setChannel(2)
+		self.ResetEmitter.setChannel(1)
+
+		# Receiver for lap and sector times
+		self.LapReceiver = super().getDevice("LapReceiver")
+		self.LapReceiver.enable(RECEIVER_SAMPLING_PERIOD)
+		self.LapReceiver.setChannel(3)
+
 		# Lidar initialisation
 		self.lidar = super().getDevice("RpLidarA2")
 		self.lidar.enable(int(super().getBasicTimeStep()))
 		self.lidar.enablePointCloud()
+		self.lap_time = 0
+		self.sector1_t = 0
+		self.sector2_t = 0
+		self.sector3_t = 0
 
 		# Action space
 		self.action_space = gym.spaces.Box(low=np.array([-1, -1]), high=np.array([1, 1]), dtype=np.float32)
@@ -81,7 +85,7 @@ class WebotsGymEnvironment(Driver, gym.Env):
 				else :
 					tableau_lidar_mm[i] = 0
 			for i in range(101,260) : #zone correspondant à l'habitacle de la voiture
-				tableau_lidar_mm[i] = 0	
+				tableau_lidar_mm[i] = 0    
 			for i in range(260,360) :
 				if (donnees_lidar_brutes[-i]>0) and (donnees_lidar_brutes[-i]<12) :
 					tableau_lidar_mm[i] = 1000*donnees_lidar_brutes[-i]
@@ -151,11 +155,18 @@ class WebotsGymEnvironment(Driver, gym.Env):
 	
 	# Reward function
 	def get_reward(self, obs):
-		global lap_time, sector1_t, sector2_t, sector3_t
-		print("TTO2_conbtroller lap_time = ",lap_time)
 		reward = 0
 		done = False
 		mini = 1
+
+		# Get lap and sector times
+		while(self.LapReceiver.getQueueLength() > 0) : 
+			data = self.LapReceiver.getBytes()
+			print("tt02 received : ", data)
+			self.sector1_t, self.sector2_t, self.sector3_t, self.lap_time = struct.unpack("ffff", data) # Unpack the data
+			self.LapReceiver.nextPacket()
+
+		
 		#recherche de la distance la plus faible mesuree par le lidar entre -40 et +40°
 		for i in range(-40,40) :
 			if (obs["current_lidar"][i] < mini and obs["current_lidar"][i]!=0) :
@@ -173,7 +184,7 @@ class WebotsGymEnvironment(Driver, gym.Env):
 		elif mini < 0.014 : #0.014 <-> 168 mm
 			# Crash
 			self.numero_crash += 1
-			print("crash num " + str(self.numero_crash) + " distance_mini : " + str(mini))
+			print("crash num " + str(self.numero_crash))
 			reward = -300
 			done = True
 		
@@ -186,8 +197,15 @@ class WebotsGymEnvironment(Driver, gym.Env):
 			done = True	
 		
 		else:
-			#Récompense pour une grande distance aux obstacles et une grande vitesse
-			reward = 12 * (mini-0.014) + 1 * super().getTargetCruisingSpeed()
+			
+			for sector_t in [self.sector1_t, self.sector2_t, self.sector3_t]:
+
+				if sector_t > 0 :
+					print("reward for sector_t "+str(sector_t))
+					reward += 10*1/sector_t
+			if self.lap_time > 0 :
+				reward += 100*1/self.lap_time 
+			#reward = 12 * (mini-0.014) + 1 * super().getTargetCruisingSpeed() # Récompense pour une grande distance aux obstacles et une grande vitesse
 			#print("reward : "+str(reward))
 
 		#Reset si la voiture a fait beaucoup de pas
@@ -214,21 +232,24 @@ class WebotsGymEnvironment(Driver, gym.Env):
 		if(self.numero_crash != 0):         
 			#attente de l'arrêt de la voiture
 			while abs(super().getCurrentSpeed()) >= 0.001 :    		           	
-				# print("voiture pas encore arrêtée")
+				print("voiture pas encore arrêtée")
 				super().step()
             		
 			# Return an observation
 			self.packet_number += 1
 			# Envoi du signal de reset au Superviseur pour replacer les voitures
-			self.emitter.send("voiture crash envoi numero " + str(self.packet_number))
+			message = "voiture crash envoi numero " + str(self.packet_number)
+			print("tt02 sends : " + message)
+			self.ResetEmitter.send(message)
 			super().step()
 			#attente de la remise en place des voitures
-			while(self.receiver.getQueueLength() == 0) :        	
+			while(self.ResetReceiver.getQueueLength() == 0) : 
 				self.set_vitesse_m_s(self.consigne_vitesse )
 				super().step()
 
-			data = self.receiver.getString()
-			self.receiver.nextPacket()
+			data = self.ResetReceiver.getString()
+			print("tt02 received : " + data)
+			self.ResetReceiver.nextPacket()
 			# print(data) #affichage du message reçu du spuerviseur
 			super().step()
 
@@ -244,7 +265,7 @@ class WebotsGymEnvironment(Driver, gym.Env):
 			for j in range (-40,+40) :
 				if tableau_lidar_mm[j] < mini :
 					mini = tableau_lidar_mm[j]
-		# print("démarrage lidar num "+str(self.nb_demarrage_lidar)+ " mini = " +str(mini))					
+		# print("démarrage lidar num "+str(self.nb_demarrage_lidar)+ " mini = " +str(mini))
 		return self.get_observation(True)
 	
 	# Step function
@@ -303,21 +324,21 @@ def main():
 	# Load learning data
 	model = PPO.load("PPO_results_3.zip")
 	model.set_env(env)
-           # print("model loaded")
+	print("model loaded")
 
 
-	# Training
-	#print("début de l'apprentissage")
-	#model.learn(total_timesteps=100000)
-	#t1 = time.time()
-	#print("fin de l'apprentissage après " + str(t1-t0) + "secondes")
-	#print("nombre de collisions : " +str(env.numero_crash))
-	#print("nombre de problèmes de communication avec le lidar : " +str(env.nb_pb_lidar))
-	#print("nombre de problèmes d'acquisition lidar : " +str(env.nb_pb_acqui_lidar))
-	#print("nombre de démarrage du lidar : " +str(env.nb_demarrage_lidar))
+	# # Training
+	# print("début de l'apprentissage")
+	# model.learn(total_timesteps=100000)
+	# t1 = time.time()
+	# print("fin de l'apprentissage après " + str(t1-t0) + "secondes")
+	# print("nombre de collisions : " +str(env.numero_crash))
+	# print("nombre de problèmes de communication avec le lidar : " +str(env.nb_pb_lidar))
+	# print("nombre de problèmes d'acquisition lidar : " +str(env.nb_pb_acqui_lidar))
+	# print("nombre de démarrage du lidar : " +str(env.nb_demarrage_lidar))
 
 	
-	#model.save("PPO_results_3") # Save learning data
+	model.save("PPO_results_4") # Save learning data
 
 	# Demo of the results
 	
