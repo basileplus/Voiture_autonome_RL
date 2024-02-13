@@ -1,18 +1,22 @@
+#!/home/basile/miniconda3/bin/python
+
+import sys
+
+print("path : ",sys.path)
 # Python imports
-import gym as gym
+import gymnasium as gym
 import numpy as np
 import time
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_checker import check_env
 import struct
 
-import sys
 #sous Linux, chemin a adapter export WEBOTS_HOME=/usr/local/webots
 sys.path.append('/usr/local/webots/lib/controller/python/')
 sys.path.append('/home/basile/Documents/TER_basile/Simulateur_CoVAPSy_Webots2023b_RL_essai3/controllers')
 
 
-
+print("path : ",sys.path)
 	
 
 
@@ -168,9 +172,10 @@ class WebotsGymEnvironment(Driver, gym.Env):
 
 		
 		#recherche de la distance la plus faible mesuree par le lidar entre -40 et +40°
-		for i in range(-40,40) :
+		for i in range(-30,30) :
 			if (obs["current_lidar"][i] < mini and obs["current_lidar"][i]!=0) :
 				mini = obs["current_lidar"][i]
+		print("obs[current_lidar] = "+str(obs["current_lidar"])+" mini = "+str(mini))
 		
 		#si le lidar indique 0 sur 3 valeurs devant, c'est qu'il y a un souci
 		if obs["current_lidar"][0]==0 and obs["current_lidar"][1]==0 and obs["current_lidar"][-1]==0 :
@@ -185,6 +190,7 @@ class WebotsGymEnvironment(Driver, gym.Env):
 			# Crash
 			self.numero_crash += 1
 			print("crash num " + str(self.numero_crash))
+			print("mini = " + str(mini))
 			reward = -300
 			done = True
 		
@@ -239,7 +245,7 @@ class WebotsGymEnvironment(Driver, gym.Env):
 			self.packet_number += 1
 			# Envoi du signal de reset au Superviseur pour replacer les voitures
 			message = "voiture crash envoi numero " + str(self.packet_number)
-			print("tt02 sends : " + message)
+			#print("tt02 sends : " + message)
 			self.ResetEmitter.send(message)
 			super().step()
 			#attente de la remise en place des voitures
@@ -248,7 +254,7 @@ class WebotsGymEnvironment(Driver, gym.Env):
 				super().step()
 
 			data = self.ResetReceiver.getString()
-			print("tt02 received : " + data)
+			#print("tt02 received : " + data)
 			self.ResetReceiver.nextPacket()
 			# print(data) #affichage du message reçu du spuerviseur
 			super().step()
@@ -322,7 +328,7 @@ def main():
 		# ent_coef=0.01)
 
 	# Load learning data
-	model = PPO.load("PPO_results_3.zip")
+	model = PPO.load("PPO_results_20231001_essai72.zip")
 	model.set_env(env)
 	print("model loaded")
 

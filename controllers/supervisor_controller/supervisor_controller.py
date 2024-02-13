@@ -115,7 +115,7 @@ while supervisor.step(basicTimeStep) != -1:
             
         # Send lap time and sector times
         message = struct.pack("ffff", tt_02.sector1_t, tt_02.sector2_t, tt_02.sector3_t, tt_02.lap_time) # Pack lap time and sector times into a message
-        print("super sends : ", message)
+        #print("super sends : ", message)
         LapEmitter.send(message)
         # A chaque tour on réinitialise les temps
         line2_t, line3_t = 0, 0
@@ -129,7 +129,7 @@ while supervisor.step(basicTimeStep) != -1:
 
             # Send lap time and sector times
             message = struct.pack("ffff", tt_02.sector1_t, tt_02.sector2_t, tt_02.sector3_t, tt_02.lap_time)
-            print("super sends : ", message)
+            #print("super sends : ", message)
             LapEmitter.send(message)
             print("sector 1 time = ", tt_02.sector1_t)
         else :
@@ -145,7 +145,7 @@ while supervisor.step(basicTimeStep) != -1:
 
             # Send lap time and sector times
             message = struct.pack("ffff", tt_02.sector1_t, tt_02.sector2_t, tt_02.sector3_t, tt_02.lap_time)
-            print("super sends : ", message)
+            #print("super sends : ", message)
             LapEmitter.send(message)
             print("sector 2 time = ", tt_02.sector2_t)
 
@@ -168,7 +168,7 @@ while supervisor.step(basicTimeStep) != -1:
 	# Get the data off the queue
         try :
             data = ResetReceiver.getString()
-            print("super receive : ", data)
+            #print("super receive : ", data)
             ResetReceiver.nextPacket()
             print(data)
             # Choose driving direction
@@ -215,7 +215,7 @@ while supervisor.step(basicTimeStep) != -1:
 
                 supervisor.step(basicTimeStep)
                 message = "voiture replacee num : " + str(packet_number)
-                print("super sends : ", message)
+                #print("super sends : ", message)
                 ResetEmitter.send(message)
                 # print("voiture replacee num : " + str(packet_number))
             
@@ -225,7 +225,7 @@ while supervisor.step(basicTimeStep) != -1:
             tt_02.lap_time, tt_02.sector1_t, tt_02.sector2_t, tt_02.sector3_t = 0, 0, 0, 0 # Reset lap time and sector times
             # Send lap time and sector times
             message = struct.pack("ffff", tt_02.sector1_t, tt_02.sector2_t, tt_02.sector3_t, tt_02.lap_time)
-            print("super sends : ", message)
+            #print("super sends : ", message)
             LapEmitter.send(message)
 
         except :
