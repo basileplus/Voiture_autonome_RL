@@ -1,8 +1,5 @@
-#!/home/basile/miniconda3/bin/python
 
-import sys
 
-print("path : ",sys.path)
 # Python imports
 import gymnasium as gym
 import numpy as np
@@ -10,14 +7,14 @@ import time
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_checker import check_env
 import struct
+import sys
 
 #sous Linux, chemin a adapter export WEBOTS_HOME=/usr/local/webots
 sys.path.append('/usr/local/webots/lib/controller/python/')
 sys.path.append('/home/basile/Documents/TER_basile/Simulateur_CoVAPSy_Webots2023b_RL_essai3/controllers')
 
 
-print("path : ",sys.path)
-	
+
 
 
 from vehicle import Driver
@@ -73,8 +70,8 @@ class WebotsGymEnvironment(Driver, gym.Env):
 		#self.observation_space = gym.spaces.Box(np.ones(360)*-1, np.ones(360), dtype=np.float64)
 		
 		self.observation_space = gym.spaces.Dict({
-		"current_lidar":gym.spaces.Box(np.zeros(201), np.ones(201), dtype=np.float64),
-		"previous_lidar":gym.spaces.Box(np.zeros(201), np.ones(201), dtype=np.float64),
+		"current_lidar":gym.spaces.Box(np.zeros(360), np.ones(360), dtype=np.float64),
+		"previous_lidar":gym.spaces.Box(np.zeros(360), np.ones(360), dtype=np.float64),
 		"previous_speed":gym.spaces.Box(np.array([0]), np.array([1]), dtype=np.float64),
 		"previous_angle":gym.spaces.Box(np.array([-1]), np.array([1]), dtype=np.float64),
 		})
@@ -130,15 +127,15 @@ class WebotsGymEnvironment(Driver, gym.Env):
 			tableau_lidar_mm = self.get_lidar_mm() #lidar en mm
   	
 		if init:
-			current_lidar=(np.concatenate((tableau_lidar_mm[0:101],tableau_lidar_mm[260:360]),axis=None)).astype("float64")/12000
-			previous_lidar=(np.concatenate((tableau_lidar_mm[0:101],tableau_lidar_mm[260:360]),axis=None)).astype("float64")/12000
+			current_lidar=(np.concatenate((tableau_lidar_mm[0:101],tableau_lidar_mm[101:360]),axis=None)).astype("float64")/12000
+			previous_lidar=(np.concatenate((tableau_lidar_mm[0:101],tableau_lidar_mm[101:360]),axis=None)).astype("float64")/12000
 			previous_speed=np.zeros(1)
 			previous_angle=np.zeros(1)
 
 		else:
 			#grandeurs normalisées pour observation
 			previous_lidar=self.observation["current_lidar"]
-			current_lidar=(np.concatenate((tableau_lidar_mm[0:101],tableau_lidar_mm[260:360]),axis=None)).astype("float64")/12000
+			current_lidar=(np.concatenate((tableau_lidar_mm[0:101],tableau_lidar_mm[101:360]),axis=None)).astype("float64")/12000
 			previous_speed=np.array([self.consigne_vitesse/VITESSE_MAX_M_S])
 			# si on a un capteur de vitesse sur la voiture relle : 
 			# previous_speed=[(super().getTargetCruisingSpeed()/3.6)/VITESSE_MAX_M_S]
@@ -175,7 +172,6 @@ class WebotsGymEnvironment(Driver, gym.Env):
 		for i in range(-30,30) :
 			if (obs["current_lidar"][i] < mini and obs["current_lidar"][i]!=0) :
 				mini = obs["current_lidar"][i]
-		print("obs[current_lidar] = "+str(obs["current_lidar"])+" mini = "+str(mini))
 		
 		#si le lidar indique 0 sur 3 valeurs devant, c'est qu'il y a un souci
 		if obs["current_lidar"][0]==0 and obs["current_lidar"][1]==0 and obs["current_lidar"][-1]==0 :
@@ -223,7 +219,7 @@ class WebotsGymEnvironment(Driver, gym.Env):
 		return reward, done		
 
 	# Reset the simulation
-	def reset(self):
+	def reset(self,seed=0):
 		
 		# Reset speed and steering angle et attente de l'arrêt de la voiture
 		self.consigne_vitesse = 0.0
@@ -272,7 +268,7 @@ class WebotsGymEnvironment(Driver, gym.Env):
 				if tableau_lidar_mm[j] < mini :
 					mini = tableau_lidar_mm[j]
 		# print("démarrage lidar num "+str(self.nb_demarrage_lidar)+ " mini = " +str(mini))
-		return self.get_observation(True)
+		return self.get_observation(True), {}
 	
 	# Step function
 	def step(self, action):
@@ -299,7 +295,7 @@ class WebotsGymEnvironment(Driver, gym.Env):
 		
 		obs = self.get_observation()
 		reward, done = self.get_reward(obs)
-		return obs, reward, done, {}
+		return obs, reward, done, False, {}
 
 
 # Main function
@@ -328,36 +324,36 @@ def main():
 		# ent_coef=0.01)
 
 	# Load learning data
-	model = PPO.load("PPO_results_20231001_essai72.zip")
+	model = PPO.load("PPO_results_12022024hugo.zip")
 	model.set_env(env)
 	print("model loaded")
 
 
-	# # Training
-	# print("début de l'apprentissage")
-	# model.learn(total_timesteps=100000)
-	# t1 = time.time()
-	# print("fin de l'apprentissage après " + str(t1-t0) + "secondes")
-	# print("nombre de collisions : " +str(env.numero_crash))
-	# print("nombre de problèmes de communication avec le lidar : " +str(env.nb_pb_lidar))
-	# print("nombre de problèmes d'acquisition lidar : " +str(env.nb_pb_acqui_lidar))
-	# print("nombre de démarrage du lidar : " +str(env.nb_demarrage_lidar))
+	# Training
+	print("début de l'apprentissage")
+	model.learn(total_timesteps=100000)
+	t1 = time.time()
+	print("fin de l'apprentissage après " + str(t1-t0) + "secondes")
+	print("nombre de collisions : " +str(env.numero_crash))
+	print("nombre de problèmes de communication avec le lidar : " +str(env.nb_pb_lidar))
+	print("nombre de problèmes d'acquisition lidar : " +str(env.nb_pb_acqui_lidar))
+	print("nombre de démarrage du lidar : " +str(env.nb_demarrage_lidar))
 
 	
-	model.save("PPO_results_4") # Save learning data
+	model.save("PPO_results_5") # Save learning data
 
 	# Demo of the results
 	
-	obs = env.reset()
+	obs, _ = env.reset(0)
 	print("Demo of the results.")
 	c = 0
 	for _ in range(10000):
 		# Play the demo
-		action, _ = model.predict(obs, deterministic=True)
-		obs, reward, done, _ = env.step(action)
+		action, _states = model.predict(obs, deterministic=True)
+		obs, reward, done, _, _ = env.step(action)
 		c += reward
 		if done:
-			obs = env.reset()
+			obs, _ = env.reset(0)
 	print("Exiting.")
 	print(c)
 	

@@ -210,10 +210,12 @@ PROTO TT02_2023b_RL [
               url [
                 "ChevroletCamaroLight.stl"
               ]
+              
             }
             castShadows FALSE
           }
         ]
+        
       }
     ]
     boundingObject Group {
